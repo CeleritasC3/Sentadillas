@@ -8,10 +8,10 @@
 <link rel="icon" href="icon-192.png">
 <title>Contador de sentadillas</title>
 <style>
-:root{--bg:#eef1f6;--fg:#0f1b2d;--card:#fff;--mut:#5b6678;--ac:#2f5bff;--onac:#fff;--ok:#12a150;--line:#d5dbe6;
+:root{--bg:#eef1f6;--fg:#0f1b2d;--card:#fff;--mut:#5b6678;--ac:#2f5bff;--onac:#fff;--ok:#12a150;--line:#d5dbe6;--bad:#d9381e;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a}}
-:root[data-theme="dark"]{--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a;--bad:#ff7b6b}}
+:root[data-theme="dark"]{--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a;--bad:#ff7b6b}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 Barlow,system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:520px;margin:0 auto;padding:14px 14px 28px}
@@ -37,6 +37,20 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
 .tips{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--mut)}
 .tips b{color:var(--fg)}
 .tips ol{margin:6px 0 0;padding-left:20px}
+
+.ver{position:fixed;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 4px);font-size:10px;opacity:.28;pointer-events:none;letter-spacing:.5px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:12px 0}
+.sw{display:flex;align-items:center;gap:10px;font-weight:600}
+.sw input{width:20px;height:20px;accent-color:var(--ac)}
+.tin{display:none;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.tin label{display:flex;flex-direction:column;font-size:13px;color:var(--mut);gap:4px}
+.tin input,.tin select{font:600 18px Barlow,system-ui,sans-serif;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);width:100%;box-sizing:border-box}
+.tin .tol{grid-column:1/-1}
+.tres{margin:8px 0;display:grid;gap:4px;font-size:15px}
+.tres[hidden]{display:none}
+.tres div{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-radius:8px;background:var(--card);border:1px solid var(--line)}
+.tres .ok span{color:var(--ok)}
+.tres .bad span{color:var(--bad)}
 </style>
 </head>
 <body>
@@ -55,6 +69,8 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
     <div class="meter" id="meter"><i id="mf"></i></div>
   </div>
 </div>
+<div class="tres" id="tres" hidden></div>
+<div class="sub" id="tcount"></div>
 <div class="row">
   <button class="main" id="bCal">Activar cámara</button>
   <button id="bFlip" title="Cambiar cámara">Girar cámara</button>
@@ -64,6 +80,16 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
   <label for="sel" class="sub">Bajada mínima</label>
   <select id="sel"><option value="0.14">Poca (14 %)</option><option value="0.2" selected>Media (20 %)</option><option value="0.28">Mucha (28 %)</option></select>
 </div>
+<div class="panel">
+  <label class="sw"><input type="checkbox" id="tOn"> Usar tempo</label>
+  <div class="tin" id="tIn">
+    <label>Bajada (s)<input type="number" id="t1" min="0" max="10" step="0.5" value="3" inputmode="decimal"></label>
+    <label>Pausa (s)<input type="number" id="t2" min="0" max="10" step="0.5" value="1" inputmode="decimal"></label>
+    <label>Subida (s)<input type="number" id="t3" min="0" max="10" step="0.5" value="1" inputmode="decimal"></label>
+    <label class="tol">Margen de error<select id="tTol"><option value="0.5">±0,5 s</option><option value="0.75" selected>±0,75 s</option><option value="1">±1 s</option></select></label>
+  </div>
+  <div class="sub" id="tLabel" style="margin-top:8px">Tempo desactivado</div>
+</div>
 <div class="tips"><b>Cómo usarla</b>
 <ol>
 <li>Apoya el celular fijo, a 2–3 m, de lado o de frente, con el cuerpo completo en cuadro.</li>
@@ -71,6 +97,7 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
 <li>Tienes 10 segundos para ponerte de pie con la barra en los hombros. Al llegar a 0, esa es tu posición de inicio: empieza tus sentadillas.</li>
 </ol></div>
 </main>
+<div class="ver" id="ver">v3</div>
 <script>
 (function(){
 var $=function(i){return document.getElementById(i)};
@@ -111,8 +138,40 @@ function gray(){
   for(var i=0,j=0;i<d.length;i+=4,j++)g[j]=d[i]*.3+d[i+1]*.59+d[i+2]*.11;
   return g;
 }
-function reset(){reps=0;phase='arriba';hist=[];ys=null;bs=null;maxR=0;$('n').textContent='0';$('depth').textContent='Profundidad: —';setState('Listo')}
+function reset(){rs=[];rstart=0;tempoReps=0;tempoOk=0;$('tres').hidden=true;$('tcount').textContent='';reps=0;phase='arriba';hist=[];ys=null;bs=null;maxR=0;$('n').textContent='0';$('depth').textContent='Profundidad: —';setState('Listo')}
 function setState(s){$('st').textContent=s}
+var rs=[],rstart=0,tempoReps=0,tempoOk=0,TS=0.05;
+function fmt(x){return x.toFixed(1).replace('.',',')}
+function sh(x){return String(x).replace('.',',')}
+function num(id){var x=parseFloat(String($(id).value).replace(',','.'));return isFinite(x)&&x>=0?x:0}
+function readTempo(){return{on:$('tOn').checked,a:num('t1'),b:num('t2'),c:num('t3'),tol:parseFloat($('tTol').value)}}
+function tempoResult(T,now){
+  var mx=0,i;for(i=0;i<rs.length;i++)if(rs[i].r>mx)mx=rs[i].r;
+  var band=Math.max(.02,.08*mx),i1=-1,i2=-1;
+  for(i=0;i<rs.length;i++)if(rs[i].r>=mx-band){if(i1<0)i1=i;i2=i}
+  var te=(rs[i1].t-rs[0].t)/1000,tp=(rs[i2].t-rs[i1].t)/1000,tc=(now-rs[i2].t)/1000;
+  var list=[['Bajada',te,T.a,0],['Pausa',tp,T.b,0],['Subida',tc,T.c,1]],allOk=true,h='';
+  list.forEach(function(o){
+    var d=o[1]-o[2],ok=Math.abs(d)<=T.tol||(o[3]&&d<0),txt=ok?'✓':(d>0?'lento':'rápido');
+    if(!ok)allOk=false;
+    h+='<div class="'+(ok?'ok':'bad')+'"><b>'+o[0]+' '+fmt(o[1])+' s</b><span>meta '+fmt(o[2])+' s · '+txt+'</span></div>';
+  });
+  tempoReps++;if(allOk)tempoOk++;
+  $('tres').innerHTML=h;$('tres').hidden=false;
+  $('tcount').textContent='En tempo: '+tempoOk+' de '+tempoReps;
+  return [te,tp,tc];
+}
+function saveT(){try{localStorage.setItem('tempo',JSON.stringify({on:$('tOn').checked,a:$('t1').value,b:$('t2').value,c:$('t3').value,tol:$('tTol').value}))}catch(e){}}
+function loadT(){try{var o=JSON.parse(localStorage.getItem('tempo')||'null');if(o){$('tOn').checked=!!o.on;$('t1').value=o.a;$('t2').value=o.b;$('t3').value=o.c;$('tTol').value=o.tol}}catch(e){}}
+function updT(){
+  var T=readTempo();
+  $('tIn').style.display=T.on?'grid':'none';
+  $('tLabel').textContent=T.on?('Tempo '+sh(T.a)+'-'+sh(T.b)+'-'+sh(T.c)+' (bajada, pausa, subida)'):'Tempo desactivado';
+  if(!T.on){$('tres').hidden=true;$('tcount').textContent=''}
+  saveT();
+}
+['tOn','t1','t2','t3','tTol'].forEach(function(id){$(id).addEventListener('input',updT);$(id).addEventListener('change',updT)});
+loadT();updT();
 var POS_MS=10000,BG_MS=3000,posEnd=0,samples=[],stand=0,H0=0.5;
 function med(a){a=a.slice().sort(function(x,y){return x-y});return a[a.length>>1]}
 function line(yy,col,dash){octx.strokeStyle=col;octx.lineWidth=3;octx.setLineDash(dash||[]);octx.beginPath();octx.moveTo(0,yy*ov.height);octx.lineTo(ov.width,yy*ov.height);octx.stroke()}
@@ -161,21 +220,27 @@ function loop(now){
   if(!sil){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
   ys=ys===null?sil.t:ys*.6+sil.t*.4;
   if(phase==='arriba'&&Math.abs(ys-stand)<0.04)stand+=(ys-stand)*0.05;
-  var ratio=(ys-stand)/H0;
+  var ratio=(ys-stand)/H0,T=readTempo();
+  if(rstart>0)rs.push({t:now,r:ratio});
+  var mov=T.on&&rstart>0?'En movimiento · '+fmt((now-rstart)/1000)+' s':null;
   if(phase==='arriba'){
-    setState('Arriba');
+    if(rstart===0&&ratio>TS){rstart=now;rs=[{t:now,r:ratio}]}
+    else if(rstart>0&&ratio<TS*0.6){rstart=0;rs=[]}
+    setState(mov||'Arriba');
     if(ratio>DOWN){phase='abajo';maxR=ratio}
   }else{
-    setState('Abajo');
+    setState(mov||'Abajo');
     if(ratio>maxR)maxR=ratio;
-    if(ratio<UP&&now-lastRep>700){
+    if(ratio<(T.on?TS:UP)&&now-lastRep>700){
       reps++;lastRep=now;phase='arriba';
       var el=$('n');el.textContent=reps;el.classList.remove('pop');void el.offsetWidth;el.classList.add('pop');
       $('depth').textContent='Última bajada: '+Math.round(maxR*100)+' % de tu altura';
+      if(T.on&&rs.length>5)tempoResult(T,now);
+      rstart=0;rs=[];
       beep();if(navigator.vibrate)navigator.vibrate(60);
     }
   }
-  msg(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.');
+  msg(T.on?('Tempo '+sh(T.a)+'-'+sh(T.b)+'-'+sh(T.c)+': baja, pausa y sube.'):(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.'));
   $('mf').style.width=Math.max(0,Math.min(100,ratio/DOWN*100))+'%';
   $('meter').className='meter'+(ratio>DOWN?' deep':'');
   line(stand,'rgba(255,255,255,.9)',[10,8]);
