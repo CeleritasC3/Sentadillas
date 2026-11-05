@@ -67,8 +67,8 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
 <div class="tips"><b>Cómo usarla</b>
 <ol>
 <li>Apoya el celular fijo, a 2–3 m, de lado o de frente, con el cuerpo completo en cuadro.</li>
-<li>Con el cuadro vacío, pulsa «Calibrar» y sal de la imagen durante 5 segundos.</li>
-<li>Entra, quédate de pie 2 segundos y haz tus sentadillas, frontales o traseras.</li>
+<li>Pulsa «Calibrar» y sal del cuadro 3 segundos, para que la app vea el fondo vacío.</li>
+<li>Tienes 10 segundos para ponerte de pie con la barra en los hombros. Al llegar a 0, esa es tu posición de inicio: empieza tus sentadillas.</li>
 </ol></div>
 </main>
 <script>
@@ -113,6 +113,22 @@ function gray(){
 }
 function reset(){reps=0;phase='arriba';hist=[];ys=null;bs=null;maxR=0;$('n').textContent='0';$('depth').textContent='Profundidad: —';setState('Listo')}
 function setState(s){$('st').textContent=s}
+var POS_MS=10000,BG_MS=3000,posEnd=0,samples=[],stand=0,H0=0.5;
+function med(a){a=a.slice().sort(function(x,y){return x-y});return a[a.length>>1]}
+function line(yy,col,dash){octx.strokeStyle=col;octx.lineWidth=3;octx.setLineDash(dash||[]);octx.beginPath();octx.moveTo(0,yy*ov.height);octx.lineTo(ov.width,yy*ov.height);octx.stroke()}
+function silhouette(g){
+  var n=g.length,s=0,c=0,d=new Float32Array(n);
+  for(var a=0;a<n;a++){d[a]=g[a]-bg[a];if(Math.abs(d[a])<25){s+=d[a];c++}}
+  var off=c?s/c:0,rows=new Int16Array(PH),fg=0,T=30,md=mctx.createImageData(PW,PH);
+  for(var y=0;y<PH;y++)for(var x=0;x<PW;x++){var p=y*PW+x;if(Math.abs(d[p]-off)>T){rows[y]++;fg++;var q=p*4;md.data[q]=255;md.data[q+1]=170;md.data[q+2]=0;md.data[q+3]=110}}
+  mctx.putImageData(md,0,0);octx.imageSmoothingEnabled=false;octx.drawImage(mc,0,0,ov.width,ov.height);
+  if(fg<PW*PH*0.03)return null;
+  var mn=Math.max(3,Math.round(PW*.03)),top=-1,bot=-1;
+  for(var r=0;r<PH-2;r++){if(rows[r]>=mn&&rows[r+1]>=mn&&rows[r+2]>=mn){top=r;break}}
+  for(var r2=PH-1;r2>=2;r2--){if(rows[r2]>=mn&&rows[r2-1]>=mn){bot=r2;break}}
+  if(top<0||bot<=top)return null;
+  return {t:top/PH,b:bot/PH};
+}
 function loop(now){
   requestAnimationFrame(loop);
   if(!stream||v.readyState<2)return;
@@ -120,38 +136,32 @@ function loop(now){
   octx.clearRect(0,0,ov.width,ov.height);
   if(mode==='countdown'){
     var left=Math.ceil((calEnd-now)/1000);
-    if(left>0){msg('Sal del cuadro… '+left);return}
+    if(left>0){setState('Calibrando');msg('Sal del cuadro… '+left);return}
     mode='capture';acc=new Float32Array(PW*PH);accN=0;
   }
   if(mode==='capture'){
     for(var i=0;i<g.length;i++)acc[i]+=g[i];
-    if(++accN>=10){bg=new Float32Array(g.length);for(var k=0;k<g.length;k++)bg[k]=acc[k]/accN;mode='track';reset();msg('Listo. Entra al cuadro y quédate de pie 2 segundos.')}
+    if(++accN>=10){bg=new Float32Array(g.length);for(var k=0;k<g.length;k++)bg[k]=acc[k]/accN;mode='pos';posEnd=now+POS_MS;samples=[];ys=null;bs=null;reset();setState('Colócate');beep()}
     return;
   }
-  if(mode!=='track'||!bg)return;
-  var n=g.length,s=0,c=0,d=new Float32Array(n);
-  for(var a=0;a<n;a++){d[a]=g[a]-bg[a];if(Math.abs(d[a])<25){s+=d[a];c++}}
-  var off=c?s/c:0,rows=new Int16Array(PH),fg=0,T=30;
-  var md=mctx.createImageData(PW,PH);
-  for(var y=0;y<PH;y++)for(var x=0;x<PW;x++){
-    var p=y*PW+x;
-    if(Math.abs(d[p]-off)>T){rows[y]++;fg++;var q=p*4;md.data[q]=255;md.data[q+1]=170;md.data[q+2]=0;md.data[q+3]=110}
+  if((mode!=='pos'&&mode!=='track')||!bg)return;
+  var sil=silhouette(g);
+  if(mode==='pos'){
+    var left2=Math.ceil((posEnd-now)/1000);
+    if(sil){ys=ys===null?sil.t:ys*.6+sil.t*.4;bs=bs===null?sil.b:bs*.8+sil.b*.2;samples.push({t:now,y:ys,b:bs});line(ys,'rgba(80,230,140,.95)')}
+    if(left2>0){setState('Colócate');msg((sil?'De pie, con la barra en los hombros… ':'No te veo. Entra al cuadro… ')+left2);return}
+    var rec=samples.filter(function(o){return now-o.t<1500});
+    if(rec.length<10){mode='idle';setState('Sin calibrar');msg('No te vi bien al final. Pulsa «Calibrar» e inténtalo otra vez.');return}
+    stand=med(rec.map(function(o){return o.y}));
+    H0=med(rec.map(function(o){return o.b}))-stand;
+    if(H0<0.3){mode='idle';setState('Sin calibrar');msg('Aléjate un poco: tu cuerpo completo debe verse en cuadro. Pulsa «Calibrar».');return}
+    mode='track';phase='arriba';ys=stand;setState('Arriba');msg('¡Ya! Empieza tus sentadillas.');beep();
+    return;
   }
-  mctx.putImageData(md,0,0);
-  octx.imageSmoothingEnabled=false;octx.drawImage(mc,0,0,ov.width,ov.height);
-  if(fg<PW*PH*0.03){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
-  var mn=Math.max(3,Math.round(PW*.03)),top=-1,bot=-1;
-  for(var r=0;r<PH-2;r++){if(rows[r]>=mn&&rows[r+1]>=mn&&rows[r+2]>=mn){top=r;break}}
-  for(var r2=PH-1;r2>=2;r2--){if(rows[r2]>=mn&&rows[r2-1]>=mn){bot=r2;break}}
-  if(top<0||bot<=top)return;
-  var yt=top/PH,yb=bot/PH;
-  ys=ys===null?yt:ys*.6+yt*.4;bs=bs===null?yb:bs*.8+yb*.2;
-  hist.push({t:now,y:ys});
-  while(hist.length&&now-hist[0].t>5000)hist.shift();
-  var stand=1;for(var h=0;h<hist.length;h++)if(hist[h].y<stand)stand=hist[h].y;
-  var H=bs-stand;
-  if(H<0.3){msg('Aléjate un poco: tu cuerpo completo debe verse en cuadro.');return}
-  var ratio=(ys-stand)/H;
+  if(!sil){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
+  ys=ys===null?sil.t:ys*.6+sil.t*.4;
+  if(phase==='arriba'&&Math.abs(ys-stand)<0.04)stand+=(ys-stand)*0.05;
+  var ratio=(ys-stand)/H0;
   if(phase==='arriba'){
     setState('Arriba');
     if(ratio>DOWN){phase='abajo';maxR=ratio}
@@ -166,17 +176,16 @@ function loop(now){
     }
   }
   msg(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.');
-  $('mf').style.width=Math.min(100,ratio/DOWN*100)+'%';
+  $('mf').style.width=Math.max(0,Math.min(100,ratio/DOWN*100))+'%';
   $('meter').className='meter'+(ratio>DOWN?' deep':'');
-  var sx=ov.width/PW,sy=ov.height/PH,L=function(yy,col,dash){octx.strokeStyle=col;octx.lineWidth=3;octx.setLineDash(dash||[]);octx.beginPath();octx.moveTo(0,yy*PH*sy);octx.lineTo(ov.width,yy*PH*sy);octx.stroke()};
-  L(stand,'rgba(255,255,255,.9)',[10,8]);
-  L(stand+DOWN*H,'rgba(255,90,90,.95)',[4,6]);
-  L(ys,'rgba(80,230,140,.95)');
+  line(stand,'rgba(255,255,255,.9)',[10,8]);
+  line(stand+DOWN*H0,'rgba(255,90,90,.95)',[4,6]);
+  line(ys,'rgba(80,230,140,.95)');
 }
 $('bCal').onclick=function(){
   try{if(!audio)audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
   if(!stream){startCam();return}
-  calEnd=performance.now()+5000;mode='countdown';
+  calEnd=performance.now()+BG_MS;mode='countdown';
 };
 $('bFlip').onclick=function(){facing=facing==='environment'?'user':'environment';startCam()};
 $('bReset').onclick=reset;
