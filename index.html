@@ -67,6 +67,7 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
     <div class="state" id="st">En espera</div>
     <div class="sub" id="depth">Profundidad: —</div>
     <div class="meter" id="meter"><i id="mf"></i></div>
+    <div class="sub" id="fstat">Cara: sin iniciar</div>
   </div>
 </div>
 <div class="tres" id="tres" hidden></div>
@@ -95,9 +96,10 @@ button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-of
 <li>Apoya el celular fijo, a 2–3 m, de lado o de frente, con el cuerpo completo en cuadro.</li>
 <li>Pulsa «Calibrar» y sal del cuadro 3 segundos, para que la app vea el fondo vacío.</li>
 <li>Tienes 10 segundos para ponerte de pie con la barra en los hombros. Al llegar a 0, esa es tu posición de inicio: empieza tus sentadillas.</li>
-</ol></div>
+</ol>
+<p style="margin:8px 0 0">Para detectar tu cara, colócate de frente a la cámara y a unos 2 m. Si no la ve, la app sigue contando con la silueta.</p></div>
 </main>
-<div class="ver" id="ver">v3</div>
+<div class="ver" id="ver">v4</div>
 <script>
 (function(){
 var $=function(i){return document.getElementById(i)};
@@ -126,6 +128,7 @@ async function startCam(){
     bg=null;mode='idle';$('bCal').textContent='Calibrar';
     msg('Con el cuadro vacío, pulsa «Calibrar».');
     if(!running){running=true;requestAnimationFrame(loop)}
+    initFace();
   }catch(e){
     var nm=(e&&e.name)||'Error';
     var why=nm==='NotAllowedError'?'El navegador o la página bloquea el permiso de la cámara.':nm==='NotFoundError'?'No se encontró ninguna cámara.':nm==='NotReadableError'?'Otra app está usando la cámara.':nm==='TypeError'?'La cámara no está disponible en este contexto.':'No se pudo abrir la cámara.';
@@ -172,6 +175,57 @@ function updT(){
 }
 ['tOn','t1','t2','t3','tTol'].forEach(function(id){$(id).addEventListener('input',updT);$(id).addEventListener('change',updT)});
 loadT();updT();
+var faceDet=null,faceKind='',faceBox=null,faceT=0,faceYs=null,faceBusy=false,faceLast=0,faceTrail=[],faceSamples=[],faceOk=false,faceStand=0,faceTxt='',note2='',note2Until=0;
+function setFace(t){if(t!==faceTxt){faceTxt=t;$('fstat').textContent='Cara: '+t}}
+async function initFace(){
+  if(faceDet||faceKind==='loading')return;
+  faceKind='loading';setFace('cargando…');
+  try{
+    if('FaceDetector' in window){
+      var d=new FaceDetector({fastMode:true,maxDetectedFaces:1});
+      await d.detect(v);
+      faceDet=function(){return d.detect(v).then(function(r){var b=r&&r[0]&&r[0].boundingBox;return b?{x:b.x,y:b.y,width:b.width,height:b.height}:null})};
+      faceKind='native';setFace('lista');return;
+    }
+  }catch(e){}
+  try{
+    var base='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+    var m=await import(base+'/vision_bundle.mjs');
+    var fs=await m.FilesetResolver.forVisionTasks(base+'/wasm');
+    var opts={baseOptions:{modelAssetPath:'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',delegate:'GPU'},runningMode:'VIDEO',minDetectionConfidence:0.5};
+    var det;
+    try{det=await m.FaceDetector.createFromOptions(fs,opts)}catch(e1){opts.baseOptions.delegate='CPU';det=await m.FaceDetector.createFromOptions(fs,opts)}
+    faceDet=function(){var r=det.detectForVideo(v,performance.now());var b=r&&r.detections&&r.detections[0]&&r.detections[0].boundingBox;return Promise.resolve(b?{x:b.originX,y:b.originY,width:b.width,height:b.height}:null)};
+    faceKind='mp';setFace('lista');
+  }catch(e2){faceKind='none';setFace('no disponible (solo silueta)')}
+}
+function faceStep(now){
+  if(faceDet&&!faceBusy&&now-faceLast>70&&v.videoWidth){
+    faceBusy=true;faceLast=now;
+    faceDet().then(function(b){
+      faceBusy=false;
+      if(!b)return;
+      var vw=v.videoWidth,vh=v.videoHeight,cy=(b.y+b.height/2)/vh,cx=(b.x+b.width/2)/vw,t=performance.now();
+      faceYs=(faceYs===null||t-faceT>1000)?cy:faceYs*.5+cy*.5;
+      faceBox={x:b.x/vw,y:b.y/vh,w:b.width/vw,h:b.height/vh};faceT=t;
+      faceTrail.push({t:t,x:cx,y:faceYs});
+    }).catch(function(){faceBusy=false});
+  }
+  var T0=performance.now();
+  while(faceTrail.length&&T0-faceTrail[0].t>3000)faceTrail.shift();
+  if(faceBox&&T0-faceT<600){
+    octx.setLineDash([]);octx.strokeStyle='rgba(0,220,255,.95)';octx.lineWidth=3;
+    octx.strokeRect(faceBox.x*ov.width,faceBox.y*ov.height,faceBox.w*ov.width,faceBox.h*ov.height);
+  }
+  for(var i=1;i<faceTrail.length;i++){
+    var p=faceTrail[i-1],q=faceTrail[i];
+    octx.strokeStyle='rgba(0,220,255,'+(0.15+0.85*i/faceTrail.length)+')';octx.lineWidth=4;octx.setLineDash([]);
+    octx.beginPath();
+    octx.moveTo((p.x-(T0-p.t)/3000*0.3)*ov.width,p.y*ov.height);
+    octx.lineTo((q.x-(T0-q.t)/3000*0.3)*ov.width,q.y*ov.height);
+    octx.stroke();
+  }
+}
 var POS_MS=10000,BG_MS=3000,posEnd=0,samples=[],stand=0,H0=0.5;
 function med(a){a=a.slice().sort(function(x,y){return x-y});return a[a.length>>1]}
 function line(yy,col,dash){octx.strokeStyle=col;octx.lineWidth=3;octx.setLineDash(dash||[]);octx.beginPath();octx.moveTo(0,yy*ov.height);octx.lineTo(ov.width,yy*ov.height);octx.stroke()}
@@ -205,22 +259,45 @@ function loop(now){
   }
   if((mode!=='pos'&&mode!=='track')||!bg)return;
   var sil=silhouette(g);
+  faceStep(now);
   if(mode==='pos'){
     var left2=Math.ceil((posEnd-now)/1000);
     if(sil){ys=ys===null?sil.t:ys*.6+sil.t*.4;bs=bs===null?sil.b:bs*.8+sil.b*.2;samples.push({t:now,y:ys,b:bs});line(ys,'rgba(80,230,140,.95)')}
-    if(left2>0){setState('Colócate');msg((sil?'De pie, con la barra en los hombros… ':'No te veo. Entra al cuadro… ')+left2);return}
+    if(faceBox&&now-faceT<400&&faceYs!==null)faceSamples.push({t:now,y:faceYs});
+    if(left2>0){setState('Colócate');msg((sil?'De pie, con la barra en los hombros… ':'No te veo. Entra al cuadro… ')+left2+(faceDet?(faceBox&&now-faceT<400?' · cara ✓':' · sin cara'):''));return}
     var rec=samples.filter(function(o){return now-o.t<1500});
     if(rec.length<10){mode='idle';setState('Sin calibrar');msg('No te vi bien al final. Pulsa «Calibrar» e inténtalo otra vez.');return}
     stand=med(rec.map(function(o){return o.y}));
     H0=med(rec.map(function(o){return o.b}))-stand;
     if(H0<0.3){mode='idle';setState('Sin calibrar');msg('Aléjate un poco: tu cuerpo completo debe verse en cuadro. Pulsa «Calibrar».');return}
+    var fr=faceSamples.filter(function(o){return now-o.t<1500});
+    faceOk=false;note2='';
+    if(faceDet){
+      if(fr.length>=5){
+        var fy=med(fr.map(function(o){return o.y})),foff=(fy-stand)/H0;
+        if(foff>=-0.02&&foff<=0.4){faceStand=fy;faceOk=true;setFace('validada ✓')}
+        else{note2='La cara no coincide con la silueta; usaré solo la silueta.'}
+      }else{note2='No detecté tu cara; usaré solo la silueta. Prueba de frente a la cámara.'}
+    }
+    note2Until=now+4000;
     mode='track';phase='arriba';ys=stand;setState('Arriba');msg('¡Ya! Empieza tus sentadillas.');beep();
     return;
   }
-  if(!sil){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
-  ys=ys===null?sil.t:ys*.6+sil.t*.4;
-  if(phase==='arriba'&&Math.abs(ys-stand)<0.04)stand+=(ys-stand)*0.05;
-  var ratio=(ys-stand)/H0,T=readTempo();
+  var rsil=null;
+  if(sil){
+    ys=ys===null?sil.t:ys*.6+sil.t*.4;
+    if(phase==='arriba'&&Math.abs(ys-stand)<0.04)stand+=(ys-stand)*0.05;
+    rsil=(ys-stand)/H0;
+  }
+  var fresh=faceOk&&faceYs!==null&&faceBox&&now-faceT<400,rf=null;
+  if(fresh){
+    if(phase==='arriba'&&Math.abs(faceYs-faceStand)<0.04)faceStand+=(faceYs-faceStand)*0.05;
+    rf=(faceYs-faceStand)/H0;
+    if(rsil!==null&&Math.abs(rf-rsil)>0.25)rf=null;
+  }
+  if(faceDet)setFace(!faceOk?'solo silueta':rf!==null?'siguiendo ✓':fresh?'no coincide, usa silueta':'sin detectar, usa silueta');
+  if(rsil===null&&rf===null){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
+  var ratio=rf!==null&&rsil!==null?0.75*rf+0.25*rsil:(rf!==null?rf:rsil),T=readTempo();
   if(rstart>0)rs.push({t:now,r:ratio});
   var mov=T.on&&rstart>0?'En movimiento · '+fmt((now-rstart)/1000)+' s':null;
   if(phase==='arriba'){
@@ -240,16 +317,18 @@ function loop(now){
       beep();if(navigator.vibrate)navigator.vibrate(60);
     }
   }
-  msg(T.on?('Tempo '+sh(T.a)+'-'+sh(T.b)+'-'+sh(T.c)+': baja, pausa y sube.'):(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.'));
+  msg(now<note2Until&&note2?note2:T.on?('Tempo '+sh(T.a)+'-'+sh(T.b)+'-'+sh(T.c)+': baja, pausa y sube.'):(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.'));
   $('mf').style.width=Math.max(0,Math.min(100,ratio/DOWN*100))+'%';
   $('meter').className='meter'+(ratio>DOWN?' deep':'');
   line(stand,'rgba(255,255,255,.9)',[10,8]);
+  if(faceOk)line(faceStand,'rgba(0,220,255,.9)',[3,5]);
   line(stand+DOWN*H0,'rgba(255,90,90,.95)',[4,6]);
   line(ys,'rgba(80,230,140,.95)');
 }
 $('bCal').onclick=function(){
   try{if(!audio)audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
   if(!stream){startCam();return}
+  initFace();faceOk=false;faceSamples=[];faceYs=null;faceTrail=[];faceBox=null;note2='';
   calEnd=performance.now()+BG_MS;mode='countdown';
 };
 $('bFlip').onclick=function(){facing=facing==='environment'?'user':'environment';startCam()};
