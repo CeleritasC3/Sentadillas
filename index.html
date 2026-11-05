@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c121c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<title>Contador de sentadillas</title>
+<style>
+:root{--bg:#eef1f6;--fg:#0f1b2d;--card:#fff;--mut:#5b6678;--ac:#2f5bff;--onac:#fff;--ok:#12a150;--line:#d5dbe6;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a}}
+:root[data-theme="dark"]{--bg:#0c121c;--fg:#e8edf6;--card:#151d2b;--mut:#98a3b8;--ac:#7b96ff;--onac:#0c121c;--ok:#4cd387;--line:#27334a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 Barlow,system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:520px;margin:0 auto;padding:14px 14px 28px}
+h1{font:700 26px/1.1 "Barlow Condensed",Impact,sans-serif;margin:4px 0 12px;letter-spacing:.2px}
+.stage{position:relative;margin:0 auto;background:#000;border-radius:14px;overflow:hidden;width:100%;aspect-ratio:3/4}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.stage video{object-fit:fill}
+.msg{position:absolute;left:10px;right:10px;bottom:10px;padding:8px 12px;border-radius:10px;background:rgba(10,16,28,.78);color:#fff;font-size:14px}
+.hud{display:flex;align-items:flex-end;gap:14px;margin:14px 0 8px}
+.count{font:700 104px/.8 "Barlow Condensed",Impact,sans-serif;font-variant-numeric:tabular-nums;min-width:1.2ch}
+.count.pop{animation:pop .25s ease-out}
+@keyframes pop{from{transform:scale(1.25);color:var(--ac)}to{transform:none}}
+.side{flex:1;padding-bottom:4px}
+.state{font-weight:600;font-size:18px}
+.sub{color:var(--mut);font-size:14px}
+.meter{height:10px;border-radius:6px;background:var(--line);margin-top:8px;overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--ac);transition:width .08s}
+.meter.deep i{background:var(--ok)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+button,select{font:600 15px Barlow,system-ui,sans-serif;padding:11px 14px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg)}
+button.main{background:var(--ac);color:var(--onac);border-color:var(--ac);flex:1}
+button:focus-visible,select:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+.tips{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:14px;color:var(--mut)}
+.tips b{color:var(--fg)}
+.tips ol{margin:6px 0 0;padding-left:20px}
+</style>
+</head>
+<body>
+<main>
+<h1>Contador de sentadillas</h1>
+<div class="stage" id="stage">
+  <video id="v" playsinline muted autoplay></video>
+  <canvas id="ov"></canvas>
+  <div class="msg" id="msg">Pulsa «Activar cámara» para empezar.</div>
+</div>
+<div class="hud">
+  <div class="count" id="n">0</div>
+  <div class="side">
+    <div class="state" id="st">En espera</div>
+    <div class="sub" id="depth">Profundidad: —</div>
+    <div class="meter" id="meter"><i id="mf"></i></div>
+  </div>
+</div>
+<div class="row">
+  <button class="main" id="bCal">Activar cámara</button>
+  <button id="bFlip" title="Cambiar cámara">Girar cámara</button>
+  <button id="bReset">Reiniciar</button>
+</div>
+<div class="row" style="align-items:center;margin-top:0">
+  <label for="sel" class="sub">Bajada mínima</label>
+  <select id="sel"><option value="0.14">Poca (14 %)</option><option value="0.2" selected>Media (20 %)</option><option value="0.28">Mucha (28 %)</option></select>
+</div>
+<div class="tips"><b>Cómo usarla</b>
+<ol>
+<li>Apoya el celular fijo, a 2–3 m, de lado o de frente, con el cuerpo completo en cuadro.</li>
+<li>Con el cuadro vacío, pulsa «Calibrar» y sal de la imagen durante 5 segundos.</li>
+<li>Entra, quédate de pie 2 segundos y haz tus sentadillas, frontales o traseras.</li>
+</ol></div>
+</main>
+<script>
+(function(){
+var $=function(i){return document.getElementById(i)};
+var v=$('v'),ov=$('ov'),octx=ov.getContext('2d'),stage=$('stage');
+var pc=document.createElement('canvas'),pctx=pc.getContext('2d',{willReadFrequently:true});
+var mc=document.createElement('canvas'),mctx=mc.getContext('2d');
+var PW=120,PH=90,stream=null,facing='environment',bg=null,mode='idle',acc=null,accN=0,calEnd=0;
+var reps=0,phase='arriba',hist=[],ys=null,bs=null,lastRep=0,maxR=0,audio=null,running=false;
+var DOWN=0.2,UP=0.08;
+function msg(t){$('msg').textContent=t}
+function beep(){try{if(!audio)audio=new (window.AudioContext||window.webkitAudioContext)();var o=audio.createOscillator(),g=audio.createGain();o.frequency.value=880;g.gain.value=.15;o.connect(g);g.connect(audio.destination);o.start();o.stop(audio.currentTime+.12)}catch(e){}}
+async function startCam(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    msg('Chrome no permite la cámara en esta dirección ('+location.protocol+'//). Abre la app desde un enlace https.');return;
+  }
+  if(window.self!==window.top){msg('La página está dentro de otra página y Chrome bloquea la cámara. Ábrela por su propio enlace.')}
+  try{
+    if(stream)stream.getTracks().forEach(function(t){t.stop()});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:640},height:{ideal:480}},audio:false});
+    v.srcObject=stream;await v.play();
+    var r=v.videoWidth/v.videoHeight;
+    stage.style.aspectRatio=v.videoWidth+'/'+v.videoHeight;
+    stage.style.width='min(100%,'+(62*r)+'vh)';
+    PH=Math.round(PW/r);pc.width=mc.width=PW;pc.height=mc.height=PH;
+    ov.width=PW*4;ov.height=PH*4;
+    bg=null;mode='idle';$('bCal').textContent='Calibrar';
+    msg('Con el cuadro vacío, pulsa «Calibrar».');
+    if(!running){running=true;requestAnimationFrame(loop)}
+  }catch(e){
+    var nm=(e&&e.name)||'Error';
+    var why=nm==='NotAllowedError'?'El navegador o la página bloquea el permiso de la cámara.':nm==='NotFoundError'?'No se encontró ninguna cámara.':nm==='NotReadableError'?'Otra app está usando la cámara.':nm==='TypeError'?'La cámara no está disponible en este contexto.':'No se pudo abrir la cámara.';
+    msg(why+' ('+nm+')');
+  }
+}
+function gray(){
+  pctx.drawImage(v,0,0,PW,PH);
+  var d=pctx.getImageData(0,0,PW,PH).data,g=new Float32Array(PW*PH);
+  for(var i=0,j=0;i<d.length;i+=4,j++)g[j]=d[i]*.3+d[i+1]*.59+d[i+2]*.11;
+  return g;
+}
+function reset(){reps=0;phase='arriba';hist=[];ys=null;bs=null;maxR=0;$('n').textContent='0';$('depth').textContent='Profundidad: —';setState('Listo')}
+function setState(s){$('st').textContent=s}
+function loop(now){
+  requestAnimationFrame(loop);
+  if(!stream||v.readyState<2)return;
+  var g=gray();
+  octx.clearRect(0,0,ov.width,ov.height);
+  if(mode==='countdown'){
+    var left=Math.ceil((calEnd-now)/1000);
+    if(left>0){msg('Sal del cuadro… '+left);return}
+    mode='capture';acc=new Float32Array(PW*PH);accN=0;
+  }
+  if(mode==='capture'){
+    for(var i=0;i<g.length;i++)acc[i]+=g[i];
+    if(++accN>=10){bg=new Float32Array(g.length);for(var k=0;k<g.length;k++)bg[k]=acc[k]/accN;mode='track';reset();msg('Listo. Entra al cuadro y quédate de pie 2 segundos.')}
+    return;
+  }
+  if(mode!=='track'||!bg)return;
+  var n=g.length,s=0,c=0,d=new Float32Array(n);
+  for(var a=0;a<n;a++){d[a]=g[a]-bg[a];if(Math.abs(d[a])<25){s+=d[a];c++}}
+  var off=c?s/c:0,rows=new Int16Array(PH),fg=0,T=30;
+  var md=mctx.createImageData(PW,PH);
+  for(var y=0;y<PH;y++)for(var x=0;x<PW;x++){
+    var p=y*PW+x;
+    if(Math.abs(d[p]-off)>T){rows[y]++;fg++;var q=p*4;md.data[q]=255;md.data[q+1]=170;md.data[q+2]=0;md.data[q+3]=110}
+  }
+  mctx.putImageData(md,0,0);
+  octx.imageSmoothingEnabled=false;octx.drawImage(mc,0,0,ov.width,ov.height);
+  if(fg<PW*PH*0.03){setState('Sin persona');msg('No te veo. Entra al cuadro con el cuerpo completo.');$('mf').style.width='0';return}
+  var mn=Math.max(3,Math.round(PW*.03)),top=-1,bot=-1;
+  for(var r=0;r<PH-2;r++){if(rows[r]>=mn&&rows[r+1]>=mn&&rows[r+2]>=mn){top=r;break}}
+  for(var r2=PH-1;r2>=2;r2--){if(rows[r2]>=mn&&rows[r2-1]>=mn){bot=r2;break}}
+  if(top<0||bot<=top)return;
+  var yt=top/PH,yb=bot/PH;
+  ys=ys===null?yt:ys*.6+yt*.4;bs=bs===null?yb:bs*.8+yb*.2;
+  hist.push({t:now,y:ys});
+  while(hist.length&&now-hist[0].t>5000)hist.shift();
+  var stand=1;for(var h=0;h<hist.length;h++)if(hist[h].y<stand)stand=hist[h].y;
+  var H=bs-stand;
+  if(H<0.3){msg('Aléjate un poco: tu cuerpo completo debe verse en cuadro.');return}
+  var ratio=(ys-stand)/H;
+  if(phase==='arriba'){
+    setState('Arriba');
+    if(ratio>DOWN){phase='abajo';maxR=ratio}
+  }else{
+    setState('Abajo');
+    if(ratio>maxR)maxR=ratio;
+    if(ratio<UP&&now-lastRep>700){
+      reps++;lastRep=now;phase='arriba';
+      var el=$('n');el.textContent=reps;el.classList.remove('pop');void el.offsetWidth;el.classList.add('pop');
+      $('depth').textContent='Última bajada: '+Math.round(maxR*100)+' % de tu altura';
+      beep();if(navigator.vibrate)navigator.vibrate(60);
+    }
+  }
+  msg(phase==='arriba'?'Baja y sube para sumar una repetición.':'Ahora sube.');
+  $('mf').style.width=Math.min(100,ratio/DOWN*100)+'%';
+  $('meter').className='meter'+(ratio>DOWN?' deep':'');
+  var sx=ov.width/PW,sy=ov.height/PH,L=function(yy,col,dash){octx.strokeStyle=col;octx.lineWidth=3;octx.setLineDash(dash||[]);octx.beginPath();octx.moveTo(0,yy*PH*sy);octx.lineTo(ov.width,yy*PH*sy);octx.stroke()};
+  L(stand,'rgba(255,255,255,.9)',[10,8]);
+  L(stand+DOWN*H,'rgba(255,90,90,.95)',[4,6]);
+  L(ys,'rgba(80,230,140,.95)');
+}
+$('bCal').onclick=function(){
+  try{if(!audio)audio=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+  if(!stream){startCam();return}
+  calEnd=performance.now()+5000;mode='countdown';
+};
+$('bFlip').onclick=function(){facing=facing==='environment'?'user':'environment';startCam()};
+$('bReset').onclick=reset;
+$('sel').onchange=function(){DOWN=parseFloat(this.value);UP=Math.min(.1,DOWN*.4)};
+})();
+if('serviceWorker' in navigator&&location.protocol.indexOf('http')===0){navigator.serviceWorker.register('sw.js').catch(function(){})}
+</script>
+</body>
+</html>
